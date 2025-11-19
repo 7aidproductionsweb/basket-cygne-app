@@ -1,0 +1,48 @@
+name: Scrape Basket Data
+
+# Déclencheurs : Quand ce workflow doit-il se lancer ?
+on:
+  # 1. Automatiquement tous les jours à 11h00 UTC (soit 08h00 en Guyane)
+  schedule:
+    - cron: '0 11 * * *'
+  # 2. Manuellement via un bouton sur GitHub (pratique pour tester)
+  workflow_dispatch:
+
+# Permissions nécessaires pour que le robot puisse modifier le fichier data.json
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Étape 1 : Récupérer le code du dépôt
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      # Étape 2 : Installer Python
+      - name: Installation de Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      # Étape 3 : Installer les outils nécessaires (requests, beautifulsoup)
+      - name: Installation des dépendances
+        run: |
+          pip install -r requirements.txt
+
+      # Étape 4 : Lancer le script de scraping
+      - name: Exécution du Scraper
+        run: |
+          python scraper.py
+
+      # Étape 5 : Sauvegarder le fichier data.json si il a changé
+      - name: Commit et Push des changements
+        run: |
+          git config user.name "GitHub Action Bot"
+          git config user.email "actions@github.com"
+          git add data.json
+          # Le '|| exit 0' permet de ne pas faire d'erreur s'il n'y a aucun changement (pas de nouveaux matchs)
+          git commit -m "Mise à jour automatique des classements" || exit 0
+          git push
