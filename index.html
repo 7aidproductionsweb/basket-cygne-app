@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basket Le Cygne</title>
+    
+    <!-- Tailwind CSS pour le design -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Police Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    
+    <!-- Icônes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <style>
+        body { font-family: 'Roboto', sans-serif; }
+        .loader {
+            border-top-color: #E02424;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    
+    <!-- Lien manifeste pour PWA -->
+    <link rel="manifest" href="./manifest.json">
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+
+    <!-- En-tête -->
+    <header class="bg-red-600 text-white shadow-lg sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i class="fas fa-basketball-ball"></i>
+                Le Cygne
+            </h1>
+            <button onclick="loadData()" class="text-white hover:text-gray-200 transition">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Contenu Principal -->
+    <main class="flex-grow container mx-auto px-4 py-6 max-w-md">
+        
+        <!-- Carte de statut -->
+        <div id="status-card" class="bg-white rounded-lg shadow p-4 mb-6 text-sm text-gray-500 flex justify-between items-center hidden">
+            <span>Mise à jour : <span id="last-updated" class="font-medium text-gray-700">--</span></span>
+            <span id="status-badge" class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">En ligne</span>
+        </div>
+
+        <!-- Chargement -->
+        <div id="loader" class="flex justify-center py-10">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+        </div>
+
+        <!-- Message d'erreur (caché par défaut) -->
+        <div id="error-message" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+            <p class="font-bold">Erreur</p>
+            <p>Impossible de charger les données. Le classement n'est peut-être pas encore généré.</p>
+        </div>
+
+        <!-- Liste du Classement -->
+        <div id="standings-container" class="hidden space-y-3">
+            <h2 class="text-lg font-bold text-gray-800 mb-2 border-l-4 border-red-600 pl-2">Classement Actuel</h2>
+            <!-- Les équipes seront injectées ici par JS -->
+        </div>
+
+    </main>
+
+    <!-- Pied de page -->
+    <footer class="bg-gray-800 text-white py-6 text-center text-sm mt-auto">
+        <p>&copy; 2025 Le Cygne de Cayenne</p>
+        <p class="text-gray-500 text-xs mt-1">Données FFBB</p>
+    </footer>
+
+    <script>
+        const DATA_URL = './data.json';
+
+        // Données de secours (Mock) pour la prévisualisation ou en cas d'erreur
+        const MOCK_DATA = {
+            "updated_at": "Aujourd'hui (Démo)",
+            "source": "Simulation",
+            "standings": [
+                { "rank": "1", "name": "ASC Tours", "points": "20", "played": "10", "won": "10", "lost": "0" },
+                { "rank": "2", "name": "Le Cygne", "points": "18", "played": "10", "won": "8", "lost": "2" },
+                { "rank": "3", "name": "US Sinnamary", "points": "16", "played": "10", "won": "6", "lost": "4" },
+                { "rank": "4", "name": "Magic Team", "points": "14", "played": "10", "won": "4", "lost": "6" },
+                { "rank": "5", "name": "Sport Guyanais", "points": "12", "played": "10", "won": "2", "lost": "8" }
+            ]
+        };
+
+        async function loadData() {
+            const loader = document.getElementById('loader');
+            const container = document.getElementById('standings-container');
+            const errorMsg = document.getElementById('error-message');
+            const statusCard = document.getElementById('status-card');
+            const lastUpdated = document.getElementById('last-updated');
+            const statusBadge = document.getElementById('status-badge');
+
+            // Reset UI
+            loader.classList.remove('hidden');
+            container.classList.add('hidden');
+            errorMsg.classList.add('hidden');
+            statusCard.classList.add('hidden');
+            container.innerHTML = '<h2 class="text-lg font-bold text-gray-800 mb-2 border-l-4 border-red-600 pl-2">Classement Actuel</h2>';
+
+            try {
+                let data;
+                
+                // Essayer de fetcher le vrai fichier
+                try {
+                    // On vérifie si on est dans un environnement valide pour fetcher
+                    if (window.location.protocol === 'blob:' || window.location.protocol === 'about:') {
+                        throw new Error("Environnement preview : fetch impossible");
+                    }
+                    
+                    const response = await fetch(`${DATA_URL}?t=${new Date().getTime()}`);
+                    if (!response.ok) throw new Error("Fichier non trouvé");
+                    data = await response.json();
+                    
+                    statusBadge.textContent = "En ligne";
+                    statusBadge.className = "text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full";
+
+                } catch (fetchError) {
+                    console.warn("Fetch échoué (normal en prévisualisation), chargement des données de démo.", fetchError);
+                    // Si le fetch échoue (prévisualisation ou fichier manquant), on utilise le mock
+                    data = MOCK_DATA;
+                    
+                    statusBadge.textContent = "Mode Démo";
+                    statusBadge.className = "text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full";
+                }
+
+                // Affichage des données (Vraies ou Mock)
+                lastUpdated.textContent = data.updated_at || "Inconnue";
+                statusCard.classList.remove('hidden');
+
+                if (data.standings && data.standings.length > 0) {
+                    data.standings.forEach(team => {
+                        const isCygne = team.name.toLowerCase().includes("cygne");
+                        
+                        const cardClass = isCygne 
+                            ? "bg-red-50 border-l-4 border-red-600 shadow-md" 
+                            : "bg-white border border-gray-200 shadow-sm";
+                        
+                        const textClass = isCygne ? "text-red-700 font-bold" : "text-gray-800 font-medium";
+
+                        const html = `
+                            <div class="${cardClass} rounded-r-lg p-4 flex items-center justify-between transform transition hover:scale-102">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex-shrink-0 w-8 h-8 flex items-center justify-center bg-gray-200 rounded-full font-bold text-gray-600 text-sm">
+                                        ${team.rank}
+                                    </div>
+                                    <div>
+                                        <h3 class="${textClass} text-base leading-tight">${team.name}</h3>
+                                        <div class="text-xs text-gray-500 mt-1">
+                                            ${team.played} Joués | ${team.won} Gagnés | ${team.lost} Perdus
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-xl font-bold text-gray-700">
+                                    ${team.points} <span class="text-xs font-normal text-gray-400 block text-center">Pts</span>
+                                </div>
+                            </div>
+                        `;
+                        container.insertAdjacentHTML('beforeend', html);
+                    });
+                    container.classList.remove('hidden');
+                } else {
+                    throw new Error("Données vides");
+                }
+
+            } catch (error) {
+                console.error(error);
+                errorMsg.classList.remove('hidden');
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
