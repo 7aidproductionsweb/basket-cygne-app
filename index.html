@@ -95,6 +95,13 @@
             ]
         };
 
+        function formatDate(dateString) {
+            if (!dateString) return "Inconnue";
+            const date = new Date(dateString);
+            if (Number.isNaN(date.getTime())) return dateString;
+            return date.toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+        }
+
         async function loadData() {
             const loader = document.getElementById('loader');
             const container = document.getElementById('standings-container');
@@ -112,6 +119,7 @@
 
             try {
                 let data;
+                let usedMock = false;
                 
                 // Essayer de fetcher le vrai fichier
                 try {
@@ -130,50 +138,71 @@
                 } catch (fetchError) {
                     console.warn("Fetch échoué (normal en prévisualisation), chargement des données de démo.", fetchError);
                     // Si le fetch échoue (prévisualisation ou fichier manquant), on utilise le mock
-                    data = MOCK_DATA;
+                    data = { ...MOCK_DATA, warning: "Données distantes indisponibles" };
+                    usedMock = true;
                     
                     statusBadge.textContent = "Mode Démo";
                     statusBadge.className = "text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full";
                 }
 
+                const hasStandings = data?.standings && data.standings.length > 0;
+
+                // Si le fichier existe mais est vide ou incomplet, on bascule sur le mock pour éviter l'erreur d'affichage
+                if (!hasStandings) {
+                    console.warn("Classement vide, utilisation des données de secours pour afficher quelque chose.");
+                    data = {
+                        ...MOCK_DATA,
+                        updated_at: data?.updated_at ? `${data.updated_at} (source vide)` : "Simulation (source vide)",
+                        warning: data?.warning || "Classement vide pour la source distante",
+                    };
+                    usedMock = true;
+
+                    statusBadge.textContent = "Mode dégradé";
+                    statusBadge.className = "text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full";
+                }
+
                 // Affichage des données (Vraies ou Mock)
-                lastUpdated.textContent = data.updated_at || "Inconnue";
+                lastUpdated.textContent = formatDate(data.updated_at);
                 statusCard.classList.remove('hidden');
 
-                if (data.standings && data.standings.length > 0) {
-                    data.standings.forEach(team => {
-                        const isCygne = team.name.toLowerCase().includes("cygne");
-                        
-                        const cardClass = isCygne 
-                            ? "bg-red-50 border-l-4 border-red-600 shadow-md" 
-                            : "bg-white border border-gray-200 shadow-sm";
-                        
-                        const textClass = isCygne ? "text-red-700 font-bold" : "text-gray-800 font-medium";
+                data.standings.forEach(team => {
+                    const isCygne = team.name.toLowerCase().includes("cygne");
+                    
+                    const cardClass = isCygne 
+                        ? "bg-red-50 border-l-4 border-red-600 shadow-md" 
+                        : "bg-white border border-gray-200 shadow-sm";
+                    
+                    const textClass = isCygne ? "text-red-700 font-bold" : "text-gray-800 font-medium";
 
-                        const html = `
-                            <div class="${cardClass} rounded-r-lg p-4 flex items-center justify-between transform transition hover:scale-102">
-                                <div class="flex items-center gap-4">
-                                    <div class="flex-shrink-0 w-8 h-8 flex items-center justify-center bg-gray-200 rounded-full font-bold text-gray-600 text-sm">
-                                        ${team.rank}
-                                    </div>
-                                    <div>
-                                        <h3 class="${textClass} text-base leading-tight">${team.name}</h3>
-                                        <div class="text-xs text-gray-500 mt-1">
-                                            ${team.played} Joués | ${team.won} Gagnés | ${team.lost} Perdus
-                                        </div>
-                                    </div>
+                    const html = `
+                        <div class="${cardClass} rounded-r-lg p-4 flex items-center justify-between transform transition hover:scale-102">
+                            <div class="flex items-center gap-4">
+                                <div class="flex-shrink-0 w-8 h-8 flex items-center justify-center bg-gray-200 rounded-full font-bold text-gray-600 text-sm">
+                                    ${team.rank}
                                 </div>
-                                <div class="text-xl font-bold text-gray-700">
-                                    ${team.points} <span class="text-xs font-normal text-gray-400 block text-center">Pts</span>
+                                <div>
+                                    <h3 class="${textClass} text-base leading-tight">${team.name}</h3>
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        ${team.played} Joués | ${team.won} Gagnés | ${team.lost} Perdus
+                                    </div>
                                 </div>
                             </div>
-                        `;
-                        container.insertAdjacentHTML('beforeend', html);
-                    });
-                    container.classList.remove('hidden');
-                } else {
-                    throw new Error("Données vides");
+                            <div class="text-xl font-bold text-gray-700">
+                                ${team.points} <span class="text-xs font-normal text-gray-400 block text-center">Pts</span>
+                            </div>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', html);
+                });
+
+                if (!usedMock && data.warning) {
+                    const warn = document.createElement('div');
+                    warn.className = "bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 p-3 text-sm rounded";
+                    warn.textContent = data.warning;
+                    container.insertAdjacentElement('afterbegin', warn);
                 }
+
+                container.classList.remove('hidden');
 
             } catch (error) {
                 console.error(error);
