@@ -1,114 +1,113 @@
-import requests
-from bs4 import BeautifulSoup
+from __future__ import annotations
+
 import json
-import os
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional, Tuple
 
-# --- CONFIGURATION ---
-# L'URL fournie pour le classement du Cygne
+import requests
+from bs4 import BeautifulSoup, Tag
+
 URL = "https://competitions.ffbb.com/ligues/guy/comites/0973/clubs/guy0973007/equipes/200000005178873/classement"
-OUTPUT_FILE = "data.json"
+OUTPUT_FILE = Path("data.json")
+REQUEST_TIMEOUT = 20
 
-def fetch_data():
-    """
-    Récupère le HTML de la page FFBB.
-    Utilise un User-Agent pour ne pas être bloqué (simule un navigateur).
-    """
+
+def log(message: str) -> None:
+    print(f"[scraper] {message}")
+
+
+def fetch_html() -> Tuple[Optional[str], Optional[str]]:
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept-Language": "fr,fr-FR;q=0.9,en;q=0.8",
     }
-    
     try:
-        print(f"🔌 Connexion à {URL}...")
-        response = requests.get(URL, headers=headers)
-        response.raise_for_status() # Lève une erreur si le code n'est pas 200
-        response.encoding = 'utf-8' # Force l'encodage pour les accents
-        return response.text
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Erreur lors de la connexion : {e}")
-        return None
+        response = requests.get(URL, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        response.encoding = response.encoding or "utf-8"
+        return response.text, None
+    except requests.RequestException as exc:
+        return None, f"Network error: {exc}"
 
-def parse_standings(html):
-    """
-    Analyse le HTML pour extraire le tableau du classement.
-    """
-    soup = BeautifulSoup(html, 'html.parser')
-    standings = []
 
-    # Recherche de tous les tableaux
-    tables = soup.find_all('table')
-    
-    target_table = None
-    
-    # On cherche le tableau qui contient "Pts" (Points) dans son en-tête
-    for table in tables:
-        if table.find('th') and "Pts" in table.text:
-            target_table = table
-            break
-            
-    if not target_table:
-        print("⚠️ Aucun tableau de classement trouvé sur la page.")
-        return []
+def clean_text(tag: Tag) -> str:
+    return " ".join(tag.get_text(" ", strip=True).split())
 
-    # On parcourt les lignes du corps du tableau (tbody)
-    rows = target_table.find_all('tr')
-    
-    for row in rows:
-        cols = row.find_all('td')
-        # Une ligne valide de classement a généralement beaucoup de colonnes
-        # Structure typique FFBB: Rang, Equipe, Pts, Joués, Gagnés, Perdus...
-        if len(cols) > 2:
-            try:
-                team_name = cols[1].text.strip()
-                
-                # Nettoyage simple du nom (parfois il y a des espaces en trop)
-                team_name = " ".join(team_name.split())
 
-                team_data = {
-                    "rank": cols[0].text.strip(),
-                    "name": team_name,
-                    "points": cols[2].text.strip(),
-                    "played": cols[3].text.strip(),
-                    "won": cols[4].text.strip(),
-                    "lost": cols[5].text.strip(),
-                    # On peut ajouter le goal average si dispo dans les colonnes suivantes
-                }
-                standings.append(team_data)
-            except IndexError:
-                continue
+def find_target_table(soup: BeautifulSoup) -> Optional[Tag]:
+    for table in soup.find_all("table"):
+        headers = [clean_text(th).lower() for th in table.find_all("th")]
+        header_blob = " ".join(headers)
+        if "pts" in header_blob and ("equipe" in header_blob or "rang" in header_blob or "classement" in header_blob):
+            return table
+    return None
 
-    return standings
 
-def save_to_json(data):
-    """
-    Sauvegarde les données extraites dans un fichier JSON.
-    """
-    final_structure = {
-        "updated_at": datetime.now().strftime("%d/%m/%Y à %H:%M"),
+def parse_standings(html: str) -> Tuple[List[dict], Optional[str]]:
+    soup = BeautifulSoup(html, "html.parser")
+    table = find_target_table(soup)
+    if table is None:
+        return [], "Standings table not found"
+
+    standings: List[dict] = []
+    for row in table.find_all("tr"):
+        cells = row.find_all("td")
+        if len(cells) < 3:
+            continue
+
+        entry = {
+            "rank": clean_text(cells[0]),
+            "name": clean_text(cells[1]),
+            "points": clean_text(cells[2]),
+            "played": clean_text(cells[3]) if len(cells) > 3 else "",
+            "won": clean_text(cells[4]) if len(cells) > 4 else "",
+            "lost": clean_text(cells[5]) if len(cells) > 5 else "",
+        }
+        standings.append(entry)
+
+    if not standings:
+        return [], "No standings rows parsed"
+
+    return standings, None
+
+
+def build_payload(standings: List[dict], warning: Optional[str]) -> dict:
+    now = datetime.now(timezone.utc).astimezone()
+    return {
+        "updated_at": now.isoformat(),
         "source": URL,
-        "standings": data
+        "standings": standings,
+        "standing_count": len(standings),
+        "status": "ok" if warning is None else "degraded",
+        "warning": warning,
     }
-    
-    try:
-        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-            json.dump(final_structure, f, ensure_ascii=False, indent=2)
-        print(f"✅ Données sauvegardées dans '{OUTPUT_FILE}'")
-    except IOError as e:
-        print(f"❌ Erreur lors de l'écriture du fichier : {e}")
 
-def main():
-    print("🏀 Démarrage du Scraper Basket Guyane...")
-    html = fetch_data()
-    
+
+def save_payload(payload: dict) -> None:
+    OUTPUT_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"Wrote {OUTPUT_FILE} ({payload['standing_count']} entries, status={payload['status']}).")
+
+
+def main() -> None:
+    log("Starting scrape")
+
+    html, fetch_error = fetch_html()
+    standings: List[dict] = []
+    parse_error: Optional[str] = None
+
     if html:
-        standings_data = parse_standings(html)
-        if standings_data:
-            print(f"📊 {len(standings_data)} équipes trouvées.")
-            save_to_json(standings_data)
-        else:
-            print("⚠️ Aucune donnée de classement extraite.")
+        standings, parse_error = parse_standings(html)
+    warning = fetch_error or parse_error
+
+    payload = build_payload(standings, warning)
+    save_payload(payload)
+
+    if warning:
+        log(f"Completed with warning: {warning}")
     else:
-        print("❌ Abandon.")
+        log("Scrape completed successfully")
+
 
 if __name__ == "__main__":
     main()
